@@ -7,10 +7,11 @@ extern crate libc;
 use libc::{c_int, c_void, size_t};
 
 use std::ffi::CString;
+use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::slice;
-use std::io;
 use std::u64;
+use std::fmt;
 
 // Opaque data type for journal handle for use in ffi calls
 pub enum SdJournal {}
@@ -25,6 +26,26 @@ enum SdJournalOpen {
     CurrentUser = 1 << 3,
     OsRoot = 1 << 4,
     */
+}
+
+#[derive(Debug, Clone)]
+pub struct ClibraryError {
+    pub message: String,
+    pub return_code: c_int,
+    pub err_reason: String,
+}
+
+impl fmt::Display for ClibraryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{} (rc={}, errno msg={})",
+               self.message, self.return_code, self.err_reason)
+    }
+}
+
+impl std::error::Error for ClibraryError {
+    fn description(&self) -> &str {
+        &self.message
+    }
 }
 
 // Wakeup event types
@@ -46,6 +67,29 @@ extern {
     fn sd_journal_wait(j: *mut SdJournal, timeout_usec: u64) -> c_int;
 }
 
+// Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
+// if I can figure out how to call it I will delete this!!!
+pub fn error_string(errno: i32) -> String {
+    extern {
+        #[cfg_attr(any(target_os = "linux", target_env = "newlib"),
+                   link_name = "__xpg_strerror_r")]
+        fn strerror_r(errnum: c_int, buf: *mut c_char,
+                      buflen: libc::size_t) -> c_int;
+    }
+
+    let mut buf = [0 as c_char; 128];
+
+    let p = buf.as_mut_ptr();
+    unsafe {
+        if strerror_r(errno as c_int, p, buf.len()) < 0 {
+            panic!("strerror_r failure");
+        }
+
+        let p = p as *const _;
+        std::str::from_utf8(CStr::from_ptr(p).to_bytes()).unwrap().to_owned()
+    }
+}
+
 pub struct Journal {
     handle: *mut SdJournal,
     pub timeout_us: u64
@@ -59,8 +103,7 @@ impl Drop for Journal {
 }
 
 impl Journal {
-    // TODO: Find a more suitable error to return or create our own.
-    pub fn new() -> io::Result<Journal> {
+    pub fn new() -> Result<Journal, ClibraryError> {
         let mut tmp_handle = 0 as *mut SdJournal;
 
         let rc = unsafe {
@@ -68,13 +111,17 @@ impl Journal {
                             SdJournalOpen::LocalOnly as c_int)
         };
         if rc != 0 {
-            Err(io::Error::new(io::ErrorKind::Other, format!("Error on sd_journal_open {}", rc)))
+            Err(ClibraryError {
+                message: String::from("Error on sd_journal_open"),
+                return_code: rc,
+                err_reason: error_string(-rc),
+            })
         } else {
             Ok(Journal { handle: tmp_handle, timeout_us: std::u64::MAX })
         }
     }
 
-    fn get_log_entry(&mut self) -> io::Result<String> {
+    fn get_log_entry(&mut self) -> Result<String, ClibraryError> {
         let mut x = 0 as *mut c_void;
         let mut len = 0 as size_t;
         let field = CString::new("MESSAGE").unwrap();
@@ -89,8 +136,11 @@ impl Journal {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
             log_msg = String::from_utf8(slice[8..len].to_vec()).unwrap();
         } else {
-            return Err(io::Error::new(io::ErrorKind::Other,
-                                      format!("Error on sd_journal_get_data {}", rc)));
+            return Err(ClibraryError {
+                message: String::from("Error on sd_journal_get_data"),
+                return_code: rc,
+                err_reason: error_string(-rc),
+            });
         }
 
         Ok(log_msg)
@@ -98,17 +148,20 @@ impl Journal {
 }
 
 impl Iterator for Journal {
-    type Item = io::Result<String>;
+    type Item = Result<String, ClibraryError>;
 
-    fn next(&mut self) -> Option<io::Result<String>> {
+    fn next(&mut self) -> Option<Result<String, ClibraryError>> {
         // Hit the iterator, if we have something return it, else try waiting for it
         let log_msg: String;
 
         loop {
             let log_entry = unsafe { sd_journal_next(self.handle) };
             if log_entry < 0 {
-                return Some(Err(io::Error::new(io::ErrorKind::Other,
-                                               format!("Error on sd_journal_next {}", log_entry))));
+                return Some(Err(ClibraryError {
+                    message: String::from("Error on sd_journal_next"),
+                    return_code: log_entry,
+                    err_reason: error_string(-log_entry),
+                }));
             }
 
             if log_entry == 0 {
@@ -121,8 +174,11 @@ impl Iterator for Journal {
                     wait_rc == SdJournalWait::Invalidate as i32 {
                     continue;
                 } else {
-                    return Some(Err(io::Error::new(io::ErrorKind::Other,
-                                                   format!("Error on sd_journal_wait {}", wait_rc))));
+                    return Some(Err(ClibraryError {
+                        message: String::from("Error on sd_journal_wait"),
+                        return_code: log_entry,
+                        err_reason: error_string(-wait_rc),
+                    }));
                 }
             }
 
