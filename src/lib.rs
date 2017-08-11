@@ -182,8 +182,11 @@ impl Iterator for Journal {
                 }
             }
 
-            //TODO: Propagate the error instead of doing a panic here!
-            log_msg = self.get_log_entry().expect("Failed to get next log entry");
+            let log_retrieve = self.get_log_entry();
+            match log_retrieve {
+                Ok(log_retrieve) => log_msg = log_retrieve,
+                Err(log_retrieve) => return Some(Err(log_retrieve)),
+            }
             break;
         }
 
