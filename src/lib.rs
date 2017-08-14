@@ -248,7 +248,7 @@ impl Iterator for Journal {
                 } else {
                     return Some(Err(ClibraryError {
                         message: String::from("Error on sd_journal_wait"),
-                        return_code: log_entry,
+                        return_code: wait_rc,
                         err_reason: error_string(-wait_rc),
                     }));
                 }
