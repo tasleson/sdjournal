@@ -65,6 +65,7 @@ extern {
                            length: *mut size_t) -> c_int;
     fn sd_journal_close(j: *mut SdJournal);
     fn sd_journal_wait(j: *mut SdJournal, timeout_usec: u64) -> c_int;
+    fn sd_journal_seek_tail(j: *mut SdJournal) -> c_int;
 }
 
 // Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
@@ -144,6 +145,18 @@ impl Journal {
         }
 
         Ok(log_msg)
+    }
+
+    pub fn seek_tail(&mut self) -> Result<bool, ClibraryError> {
+        let rc = unsafe { sd_journal_seek_tail(self.handle) };
+        if rc < 0 {
+            return Err(ClibraryError {
+                message: String::from("Error on sd_journal_seek_tail"),
+                return_code: rc,
+                err_reason: error_string(-rc),
+            });
+        }
+        Ok(true)
     }
 }
 
