@@ -12,6 +12,7 @@ use std::os::raw::c_char;
 use std::slice;
 use std::u64;
 use std::fmt;
+use std::ptr;
 
 // Opaque data type for journal handle for use in ffi calls
 pub enum SdJournal {}
@@ -66,6 +67,8 @@ extern {
     fn sd_journal_close(j: *mut SdJournal);
     fn sd_journal_wait(j: *mut SdJournal, timeout_usec: u64) -> c_int;
     fn sd_journal_seek_tail(j: *mut SdJournal) -> c_int;
+
+    fn sd_journal_send(message: *const u8, ...) -> c_int;
 }
 
 // Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
@@ -73,7 +76,7 @@ extern {
 pub fn error_string(errno: i32) -> String {
     extern {
         #[cfg_attr(any(target_os = "linux", target_env = "newlib"),
-                   link_name = "__xpg_strerror_r")]
+        link_name = "__xpg_strerror_r")]
         fn strerror_r(errnum: c_int, buf: *mut c_char,
                       buflen: libc::size_t) -> c_int;
     }
@@ -158,6 +161,62 @@ impl Journal {
         }
         Ok(true)
     }
+}
+
+// TODO: Not sure how to handle the case where we need to send an arbitrary list of additional
+// details without providing a function wrapper for each.
+pub fn send_journal_basic(message: String, source: String, source_man: String, device: String,
+                          device_id: String, state: String,
+                          priority: u8, details: String) -> Result<bool, ClibraryError> {
+    let msg_id = CString::new("MESSAGE_ID=3183267b90074a4595e91daef0e01462").unwrap();
+    let device_cstr = CString::new(format!("DEVICE={}", device)).unwrap();
+    let device_id_cstr = CString::new(format!("DEVICE_ID={}", device_id)).unwrap();
+    let state_cstr = CString::new(format!("STATE={}", state)).unwrap();
+    let source_cstr = CString::new(format!("SOURCE={}", source)).unwrap();
+    let source_man_cstr = CString::new(format!("SOURCE_MAN={}", source_man)).unwrap();
+    let details_cstr = CString::new(format!("DETAILS={}", details)).unwrap();
+    let priority_cstr = CString::new(format!("PRIORITY={}", priority)).unwrap();
+
+    let priority_desc = match priority {
+        0 => "emergency",
+        1 => "alert",
+        2 => "critical",
+        3 => "error",
+        4 => "warning",
+        5 => "notice",
+        6 => "info",
+        7 => "debug",
+        _ => "invalid priority",
+    };
+
+    let priority_desc_cstr = CString::new (format!("PRIORITY_DESC={}", priority_desc)).unwrap();
+    let message_cstr = CString::new(format!("MESSAGE={}", message)).unwrap();
+    let end_args: *const u8 = ptr::null();
+
+    let rc = unsafe {
+        sd_journal_send(msg_id.as_ptr() as *const u8,        // MESSAGE_ID
+                        device_cstr.as_ptr(),           // DEVICE
+                        device_id_cstr.as_ptr(),        // DEVICE_ID
+                        state_cstr.as_ptr(),            // STATE
+                        source_cstr.as_ptr(),           // SOURCE
+                        source_man_cstr.as_ptr(),       // SOURCE_MAN
+                        details_cstr.as_ptr(),          // DETAILS
+                        priority_cstr.as_ptr(),         // PRIORITY
+                        priority_desc_cstr.as_ptr(),    // PRIORITY_DESC
+                        message_cstr.as_ptr(),          // MESSAGE
+                        end_args                        // End the arguments
+
+        )
+    };
+
+    if rc < 0 {
+        return Err(ClibraryError {
+            message: String::from("Error on sd_journal_send"),
+            return_code: rc,
+            err_reason: error_string(-rc),
+        });
+    }
+    Ok(true)
 }
 
 impl Iterator for Journal {
