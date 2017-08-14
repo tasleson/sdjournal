@@ -49,6 +49,16 @@ impl std::error::Error for ClibraryError {
     }
 }
 
+impl ClibraryError {
+    pub fn new(error_msg: String, return_code: i32) -> ClibraryError {
+        ClibraryError {
+            message: error_msg,
+            return_code: return_code,
+            err_reason: error_string(-return_code)
+        }
+    }
+}
+
 // Wakeup event types
 enum SdJournalWait {
     Nop = 0,
@@ -115,11 +125,7 @@ impl Journal {
                             SdJournalOpen::LocalOnly as c_int)
         };
         if rc != 0 {
-            Err(ClibraryError {
-                message: String::from("Error on sd_journal_open"),
-                return_code: rc,
-                err_reason: error_string(-rc),
-            })
+            Err(ClibraryError::new(String::from("Error on sd_journal_open"), rc))
         } else {
             Ok(Journal { handle: tmp_handle, timeout_us: std::u64::MAX })
         }
@@ -140,11 +146,8 @@ impl Journal {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
             log_msg = String::from_utf8(slice[8..len].to_vec()).unwrap();
         } else {
-            return Err(ClibraryError {
-                message: String::from("Error on sd_journal_get_data"),
-                return_code: rc,
-                err_reason: error_string(-rc),
-            });
+            return Err(ClibraryError::new(String::from("Error on sd_journal_get_data"),
+                                          rc));
         }
 
         Ok(log_msg)
@@ -153,11 +156,8 @@ impl Journal {
     pub fn seek_tail(&mut self) -> Result<bool, ClibraryError> {
         let rc = unsafe { sd_journal_seek_tail(self.handle) };
         if rc < 0 {
-            return Err(ClibraryError {
-                message: String::from("Error on sd_journal_seek_tail"),
-                return_code: rc,
-                err_reason: error_string(-rc),
-            });
+            return Err(ClibraryError::new(String::from("Error on sd_journal_seek_tail"),
+                                          rc));
         }
         Ok(true)
     }
@@ -189,32 +189,28 @@ pub fn send_journal_basic(message: String, source: String, source_man: String, d
         _ => "invalid priority",
     };
 
-    let priority_desc_cstr = CString::new (format!("PRIORITY_DESC={}", priority_desc)).unwrap();
+    let priority_desc_cstr = CString::new(format!("PRIORITY_DESC={}", priority_desc)).unwrap();
     let message_cstr = CString::new(format!("MESSAGE={}", message)).unwrap();
     let end_args: *const u8 = ptr::null();
 
     let rc = unsafe {
-        sd_journal_send(msg_id.as_ptr() as *const u8,        // MESSAGE_ID
-                        device_cstr.as_ptr(),           // DEVICE
-                        device_id_cstr.as_ptr(),        // DEVICE_ID
-                        state_cstr.as_ptr(),            // STATE
-                        source_cstr.as_ptr(),           // SOURCE
-                        source_man_cstr.as_ptr(),       // SOURCE_MAN
-                        details_cstr.as_ptr(),          // DETAILS
-                        priority_cstr.as_ptr(),         // PRIORITY
-                        priority_desc_cstr.as_ptr(),    // PRIORITY_DESC
-                        message_cstr.as_ptr(),          // MESSAGE
+        sd_journal_send(msg_id.as_ptr() as *const u8, // MESSAGE_ID
+                        device_cstr.as_ptr(), // DEVICE
+                        device_id_cstr.as_ptr(), // DEVICE_ID
+                        state_cstr.as_ptr(), // STATE
+                        source_cstr.as_ptr(), // SOURCE
+                        source_man_cstr.as_ptr(), // SOURCE_MAN
+                        details_cstr.as_ptr(), // DETAILS
+                        priority_cstr.as_ptr(), // PRIORITY
+                        priority_desc_cstr.as_ptr(), // PRIORITY_DESC
+                        message_cstr.as_ptr(), // MESSAGE
                         end_args                        // End the arguments
-
         )
     };
 
     if rc < 0 {
-        return Err(ClibraryError {
-            message: String::from("Error on sd_journal_send"),
-            return_code: rc,
-            err_reason: error_string(-rc),
-        });
+        return Err(ClibraryError::new(String::from("Error on sd_journal_send"),
+                                      rc));
     }
     Ok(true)
 }
@@ -229,11 +225,8 @@ impl Iterator for Journal {
         loop {
             let log_entry = unsafe { sd_journal_next(self.handle) };
             if log_entry < 0 {
-                return Some(Err(ClibraryError {
-                    message: String::from("Error on sd_journal_next"),
-                    return_code: log_entry,
-                    err_reason: error_string(-log_entry),
-                }));
+                return Some(Err(ClibraryError::new(String::from("Error on sd_journal_next"),
+                                                   log_entry)));
             }
 
             if log_entry == 0 {
@@ -246,11 +239,8 @@ impl Iterator for Journal {
                     wait_rc == SdJournalWait::Invalidate as i32 {
                     continue;
                 } else {
-                    return Some(Err(ClibraryError {
-                        message: String::from("Error on sd_journal_wait"),
-                        return_code: wait_rc,
-                        err_reason: error_string(-wait_rc),
-                    }));
+                    return Some(Err(ClibraryError::new(String::from("Error on sd_journal_wait"),
+                                                       wait_rc)));
                 }
             }
 
