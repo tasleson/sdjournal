@@ -13,6 +13,7 @@ use std::slice;
 use std::u64;
 use std::fmt;
 use std::ptr;
+use std::collections::HashMap;
 
 // Opaque data type for journal handle for use in ffi calls
 pub enum SdJournal {}
@@ -131,10 +132,10 @@ impl Journal {
         }
     }
 
-    fn get_log_entry(&mut self) -> Result<String, ClibraryError> {
+    fn get_log_entry(&mut self, key: &'static str) -> Result<String, ClibraryError> {
         let mut x = 0 as *mut c_void;
         let mut len = 0 as size_t;
-        let field = CString::new("MESSAGE").unwrap();
+        let field = CString::new(key).unwrap();
 
         let log_msg: String;
         let rc = unsafe {
@@ -146,8 +147,13 @@ impl Journal {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
             log_msg = String::from_utf8(slice[8..len].to_vec()).unwrap();
         } else {
-            return Err(ClibraryError::new(String::from("Error on sd_journal_get_data"),
-                                          rc));
+            if rc == -2 {       // ENOENT, TODO: Is there a rust constant for this?
+                // TODO: Is there a better way to handle a key not being found?
+                log_msg = String::from("");
+            } else {
+                return Err(ClibraryError::new(String::from("Error on sd_journal_get_data"),
+                                              rc));
+            }
         }
 
         Ok(log_msg)
@@ -216,11 +222,13 @@ pub fn send_journal_basic(message: String, source: String, source_man: String, d
 }
 
 impl Iterator for Journal {
-    type Item = Result<String, ClibraryError>;
+    type Item = Result<HashMap<String, String>, ClibraryError>;
 
-    fn next(&mut self) -> Option<Result<String, ClibraryError>> {
+    fn next(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
+        const KEYS: &'static [&'static str] = &["MESSAGE", "_KERNEL_DEVICE"];
+
         // Hit the iterator, if we have something return it, else try waiting for it
-        let log_msg: String;
+        let mut log_msg = HashMap::new();
 
         loop {
             let log_entry = unsafe { sd_journal_next(self.handle) };
@@ -244,10 +252,14 @@ impl Iterator for Journal {
                 }
             }
 
-            let log_retrieve = self.get_log_entry();
-            match log_retrieve {
-                Ok(log_retrieve) => log_msg = log_retrieve,
-                Err(log_retrieve) => return Some(Err(log_retrieve)),
+            for key in KEYS {
+                let log_retrieve = self.get_log_entry(key);
+                match log_retrieve {
+                    Ok(log_retrieve) => {
+                        log_msg.insert(key.to_string(), log_retrieve);
+                    },
+                    Err(log_retrieve) => return Some(Err(log_retrieve)),
+                }
             }
             break;
         }
