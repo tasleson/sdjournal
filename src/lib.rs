@@ -80,6 +80,11 @@ extern {
     fn sd_journal_seek_tail(j: *mut SdJournal) -> c_int;
 
     fn sd_journal_send(message: *const u8, ...) -> c_int;
+
+    fn sd_journal_restart_data(j: *mut SdJournal);
+    fn sd_journal_enumerate_data(j: *mut SdJournal,
+                                 data: *mut *mut c_void,
+                                 length: *mut size_t) -> c_int;
 }
 
 // Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
@@ -159,6 +164,49 @@ impl Journal {
         Ok(log_msg)
     }
 
+    fn get_log_entry_map(&mut self) -> Result<HashMap<String, String>, ClibraryError> {
+        let mut result = HashMap::new();
+
+        // Re-set for the enumerator
+        unsafe { sd_journal_restart_data(self.handle) };
+
+        loop {
+            let mut x = 0 as *mut c_void;
+            let mut len = 0 as size_t;
+
+            let rc = unsafe {
+                sd_journal_enumerate_data(self.handle,
+                                          (&mut x) as *mut _ as *mut *mut c_void,
+                                          &mut len)
+            };
+
+            if rc > 0 {
+                let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
+                let log_msg = String::from_utf8(slice[0..len].to_vec()).unwrap();
+
+                let m = log_msg.find('=');
+                match m {
+                    Some(m) => {
+                        let key = String::from_utf8(slice[0..m].to_vec()).unwrap();
+                        let value = String::from_utf8(slice[((m + 1)..len)].to_vec()).unwrap();
+                        result.insert(key, value);
+                    }
+                    None => ()
+                }
+            } else {
+                if rc < 0 {
+                    // Library error
+                    return Err(ClibraryError::new(
+                        String::from("Error on sd_journal_get_data"),
+                        rc));
+                }
+                break;
+            }
+        }
+
+        Ok(result)
+    }
+
     pub fn seek_tail(&mut self) -> Result<bool, ClibraryError> {
         let rc = unsafe { sd_journal_seek_tail(self.handle) };
         if rc < 0 {
@@ -225,10 +273,6 @@ impl Iterator for Journal {
     type Item = Result<HashMap<String, String>, ClibraryError>;
 
     fn next(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
-        const KEYS: &'static [&'static str] = &["MESSAGE", "_KERNEL_DEVICE"];
-
-        // Hit the iterator, if we have something return it, else try waiting for it
-        let mut log_msg = HashMap::new();
 
         loop {
             let log_entry = unsafe { sd_journal_next(self.handle) };
@@ -252,18 +296,11 @@ impl Iterator for Journal {
                 }
             }
 
-            for key in KEYS {
-                let log_retrieve = self.get_log_entry(key);
-                match log_retrieve {
-                    Ok(log_retrieve) => {
-                        log_msg.insert(key.to_string(), log_retrieve);
-                    },
-                    Err(log_retrieve) => return Some(Err(log_retrieve)),
-                }
+            let result = self.get_log_entry_map();
+            match result {
+                Ok(result) => return Some(Ok(result)),
+                Err(log_retrieve) => return Some(Err(log_retrieve)),
             }
-            break;
         }
-
-        Some(Ok(log_msg))
     }
 }
