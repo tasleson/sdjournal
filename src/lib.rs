@@ -150,7 +150,7 @@ impl Journal {
         };
         if rc == 0 {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
-            log_msg = String::from_utf8(slice[8..len].to_vec()).unwrap();
+            log_msg = String::from_utf8(slice[key.len()..len].to_vec()).unwrap();
         } else {
             if rc == -2 {       // ENOENT, TODO: Is there a rust constant for this?
                 // TODO: Is there a better way to handle a key not being found?
