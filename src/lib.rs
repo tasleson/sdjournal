@@ -89,6 +89,8 @@ extern {
                                  length: *mut size_t) -> c_int;
 
     fn sd_journal_get_fd(j: *mut SdJournal) -> c_int;
+
+    fn sd_journal_get_events(j: *mut SdJournal) -> c_int;
 }
 
 // Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
@@ -211,6 +213,10 @@ impl Journal {
         Ok(result)
     }
 
+    pub fn get_events_bit_mask(&mut self) -> i16 {
+        let x = unsafe { sd_journal_get_events(self.handle)};
+        return x as i16;
+    }
     pub fn seek_tail(&mut self) -> Result<bool, ClibraryError> {
         let rc = unsafe { sd_journal_seek_tail(self.handle) };
         if rc < 0 {
