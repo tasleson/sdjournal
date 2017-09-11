@@ -4,7 +4,7 @@
 
 extern crate libc;
 
-use libc::{c_int, c_void, size_t};
+use libc::{c_int, c_void, size_t, ENOENT};
 
 use std::ffi::CString;
 use std::ffi::CStr;
@@ -164,7 +164,7 @@ impl Journal {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
             log_msg = String::from_utf8(slice[key.len()..len].to_vec()).unwrap();
         } else {
-            if rc == -2 {       // ENOENT, TODO: Is there a rust constant for this?
+            if rc == -ENOENT {
                 // TODO: Is there a better way to handle a key not being found?
                 log_msg = String::from("");
             } else {
