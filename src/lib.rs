@@ -143,6 +143,7 @@ impl Journal {
         }
     }
 
+    #[allow(dead_code)]
     fn get_log_entry(&mut self, key: &'static str) -> Result<String, ClibraryError> {
         let mut x = 0 as *mut c_void;
         let mut len = 0 as size_t;
