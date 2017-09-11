@@ -225,6 +225,38 @@ impl Journal {
         }
         Ok(true)
     }
+
+    pub fn get_next(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
+
+        loop {
+            let log_entry = unsafe { sd_journal_next(self.handle) };
+            if log_entry < 0 {
+                return Some(Err(ClibraryError::new(String::from("Error on sd_journal_next"),
+                                                   log_entry)));
+            }
+
+            if log_entry == 0 {
+                // TODO: Figure out how to make a match work when comparing int to enum type.
+                let wait_rc = unsafe { sd_journal_wait(self.handle, self.timeout_us) };
+
+                if wait_rc == SdJournalWait::Nop as i32 {
+                    return None;
+                } else if wait_rc == SdJournalWait::Append as i32 ||
+                    wait_rc == SdJournalWait::Invalidate as i32 {
+                    continue;
+                } else {
+                    return Some(Err(ClibraryError::new(String::from("Error on sd_journal_wait"),
+                                                       wait_rc)));
+                }
+            }
+
+            let result = self.get_log_entry_map();
+            match result {
+                Ok(result) => return Some(Ok(result)),
+                Err(log_retrieve) => return Some(Err(log_retrieve)),
+            }
+        }
+    }
 }
 
 // TODO: Not sure how to handle the case where we need to send an arbitrary list of additional
