@@ -15,6 +15,8 @@ use std::fmt;
 use std::ptr;
 use std::collections::HashMap;
 
+use std::os::unix::io::{AsRawFd, RawFd};
+
 // Opaque data type for journal handle for use in ffi calls
 pub enum SdJournal {}
 
@@ -85,6 +87,8 @@ extern {
     fn sd_journal_enumerate_data(j: *mut SdJournal,
                                  data: *mut *mut c_void,
                                  length: *mut size_t) -> c_int;
+
+    fn sd_journal_get_fd(j: *mut SdJournal) -> c_int;
 }
 
 // Copied and pasted from https://github.com/rust-lang/rust/blob/master/src/libstd/sys/unix/os.rs
@@ -303,5 +307,11 @@ impl Iterator for Journal {
                 Err(log_retrieve) => return Some(Err(log_retrieve)),
             }
         }
+    }
+}
+
+impl AsRawFd for Journal {
+    fn as_raw_fd(&self) -> RawFd {
+        unsafe{ sd_journal_get_fd(self.handle)}
     }
 }
