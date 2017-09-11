@@ -24,12 +24,17 @@ enum SdJournalOpen {
     LocalOnly = 1 << 0,
 
     // The following are not being utilized at the moment, just here for documentation
-    /*
+    #[allow(dead_code)]
     RuntimeOnly = 1 << 1,
+
+    #[allow(dead_code)]
     System = 1 << 2,
+
+    #[allow(dead_code)]
     CurrentUser = 1 << 3,
+
+    #[allow(dead_code)]
     OsRoot = 1 << 4,
-    */
 }
 
 #[derive(Debug, Clone)]
