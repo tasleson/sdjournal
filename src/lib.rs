@@ -4,7 +4,7 @@
 
 extern crate libc;
 
-use libc::{c_int, c_void, size_t, ENOENT};
+use libc::{c_int, c_void, size_t, ENOENT, EINVAL};
 
 use std::ffi::CString;
 use std::ffi::CStr;
@@ -14,6 +14,10 @@ use std::u64;
 use std::fmt;
 use std::ptr;
 use std::collections::HashMap;
+
+#[macro_use] extern crate enum_primitive;
+extern crate num;
+use num::FromPrimitive;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -35,6 +39,20 @@ enum SdJournalOpen {
 
     #[allow(dead_code)]
     OsRoot = 1 << 4,
+}
+
+enum_from_primitive! {
+    enum JournalPriority {
+        Emergency = 0,
+        Alert = 1,
+        Critical = 2,
+        Error = 3,
+        Warning = 4,
+        Notice = 5,
+        Info = 6,
+        Debug = 7,
+        Invalid = 99,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -283,16 +301,19 @@ pub fn send_journal_basic(message_id: &'static str,
     let details_cstr = CString::new(format!("DETAILS={}", details)).unwrap();
     let priority_cstr = CString::new(format!("PRIORITY={}", priority)).unwrap();
 
-    let priority_desc = match priority {
-        0 => "emergency",
-        1 => "alert",
-        2 => "critical",
-        3 => "error",
-        4 => "warning",
-        5 => "notice",
-        6 => "info",
-        7 => "debug",
-        _ => "invalid priority",
+    let priority_desc = match JournalPriority::from_u8(priority).unwrap_or(JournalPriority::Invalid) {
+        JournalPriority::Emergency => "emergency",
+        JournalPriority::Alert => "alert",
+        JournalPriority::Critical => "critical",
+        JournalPriority::Error => "error",
+        JournalPriority::Warning => "warning",
+        JournalPriority::Notice => "notice",
+        JournalPriority::Info => "info",
+        JournalPriority::Debug => "debug",
+        JournalPriority::Invalid => {
+            return Err(ClibraryError::new(String::from(format!("Invalid priority ({})", priority)),
+                                   EINVAL));
+        },
     };
 
     let priority_desc_cstr = CString::new(format!("PRIORITY_DESC={}", priority_desc)).unwrap();
