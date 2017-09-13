@@ -4,7 +4,7 @@
 
 extern crate libc;
 
-use libc::{c_int, c_void, size_t, ENOENT, EINVAL};
+use libc::{c_int, c_void, size_t, ENOENT};
 
 use std::ffi::CString;
 use std::ffi::CStr;
@@ -14,10 +14,6 @@ use std::u64;
 use std::fmt;
 use std::ptr;
 use std::collections::HashMap;
-
-#[macro_use] extern crate enum_primitive;
-extern crate num;
-use num::FromPrimitive;
 
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -41,18 +37,17 @@ enum SdJournalOpen {
     OsRoot = 1 << 4,
 }
 
-enum_from_primitive! {
-    enum JournalPriority {
-        Emergency = 0,
-        Alert = 1,
-        Critical = 2,
-        Error = 3,
-        Warning = 4,
-        Notice = 5,
-        Info = 6,
-        Debug = 7,
-        Invalid = 99,
-    }
+
+#[derive(Clone, Copy)]
+pub enum JournalPriority {
+    Emergency = 0,
+    Alert = 1,
+    Critical = 2,
+    Error = 3,
+    Warning = 4,
+    Notice = 5,
+    Info = 6,
+    Debug = 7,
 }
 
 #[derive(Debug, Clone)]
@@ -291,7 +286,7 @@ impl Journal {
 pub fn send_journal_basic(message_id: &'static str,
                           message: String, source: String, source_man: String, device: String,
                           device_id: String, state: String,
-                          priority: u8, details: String) -> Result<bool, ClibraryError> {
+                          priority: JournalPriority, details: String) -> Result<bool, ClibraryError> {
     let msg_id = CString::new(format!("MESSAGE_ID={}", message_id)).unwrap();
     let device_cstr = CString::new(format!("DEVICE={}", device)).unwrap();
     let device_id_cstr = CString::new(format!("DEVICE_ID={}", device_id)).unwrap();
@@ -299,9 +294,9 @@ pub fn send_journal_basic(message_id: &'static str,
     let source_cstr = CString::new(format!("SOURCE={}", source)).unwrap();
     let source_man_cstr = CString::new(format!("SOURCE_MAN={}", source_man)).unwrap();
     let details_cstr = CString::new(format!("DETAILS={}", details)).unwrap();
-    let priority_cstr = CString::new(format!("PRIORITY={}", priority)).unwrap();
+    let priority_cstr = CString::new(format!("PRIORITY={}", priority as u8)).unwrap();
 
-    let priority_desc = match JournalPriority::from_u8(priority).unwrap_or(JournalPriority::Invalid) {
+    let priority_desc = match priority {
         JournalPriority::Emergency => "emergency",
         JournalPriority::Alert => "alert",
         JournalPriority::Critical => "critical",
@@ -310,10 +305,6 @@ pub fn send_journal_basic(message_id: &'static str,
         JournalPriority::Notice => "notice",
         JournalPriority::Info => "info",
         JournalPriority::Debug => "debug",
-        JournalPriority::Invalid => {
-            return Err(ClibraryError::new(String::from(format!("Invalid priority ({})", priority)),
-                                   EINVAL));
-        },
     };
 
     let priority_desc_cstr = CString::new(format!("PRIORITY_DESC={}", priority_desc)).unwrap();
