@@ -281,11 +281,9 @@ impl Journal {
     }
 }
 
-// TODO: Not sure how to handle the case where we need to send an arbitrary list of additional
-// details without providing a function wrapper for each.
 pub fn send_journal_basic(message_id: &'static str,
-                          message: String, source: String, source_man: String, device: String,
-                          device_id: String, state: String,
+                          message: &str, source: &str, source_man: &str, device: &str,
+                          device_id: &str, state: &str,
                           priority: JournalPriority, details: String) -> Result<bool, ClibraryError> {
     let msg_id = CString::new(format!("MESSAGE_ID={}", message_id)).unwrap();
     let device_cstr = CString::new(format!("DEVICE={}", device)).unwrap();
