@@ -50,7 +50,7 @@ pub enum JournalPriority {
     Debug = 7,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ClibraryError {
     pub message: String,
     pub return_code: c_int,
