@@ -214,14 +214,14 @@ impl Journal {
                     let value = String::from_utf8(slice[((m + 1)..len)].to_vec()).unwrap();
                     result.insert(key, value);
                 }
-            } else {
-                if rc < 0 {
-                    // Library error
-                    return Err(ClibraryError::new(
-                        String::from("Error on sd_journal_get_data"),
-                        rc));
-                }
+            } else if rc == 0 {
+                // No more "key:value" pairs to process, we are done looping
                 break;
+            } else {
+                // negative integer expressing error reason
+                return Err(ClibraryError::new(
+                    String::from("Error on sd_journal_enumerate_data"),
+                    rc));
             }
         }
 
