@@ -209,14 +209,10 @@ impl Journal {
                 let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
                 let log_msg = String::from_utf8(slice[0..len].to_vec()).unwrap();
 
-                let m = log_msg.find('=');
-                match m {
-                    Some(m) => {
-                        let key = String::from_utf8(slice[0..m].to_vec()).unwrap();
-                        let value = String::from_utf8(slice[((m + 1)..len)].to_vec()).unwrap();
-                        result.insert(key, value);
-                    }
-                    None => ()
+                if let Some(m) = log_msg.find('=') {
+                    let key = String::from_utf8(slice[0..m].to_vec()).unwrap();
+                    let value = String::from_utf8(slice[((m + 1)..len)].to_vec()).unwrap();
+                    result.insert(key, value);
                 }
             } else {
                 if rc < 0 {
