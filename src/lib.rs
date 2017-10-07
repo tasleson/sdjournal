@@ -80,6 +80,26 @@ impl ClibraryError {
     }
 }
 
+#[derive(Debug)]
+pub enum SdJournalError {
+    CError(ClibraryError),
+    NulError(std::ffi::NulError),
+    Utf8(std::string::FromUtf8Error),
+}
+
+impl From<std::ffi::NulError> for SdJournalError {
+    fn from(err: std::ffi::NulError) -> SdJournalError {
+        SdJournalError::NulError(err)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for SdJournalError {
+    fn from(err: std::string::FromUtf8Error) -> SdJournalError {
+        SdJournalError::Utf8(err)
+    }
+}
+
+
 // Wakeup event types
 enum SdJournalWait {
     Nop = 0,
@@ -147,7 +167,7 @@ impl Drop for Journal {
 }
 
 impl Journal {
-    pub fn new() -> Result<Journal, ClibraryError> {
+    pub fn new() -> Result<Journal, SdJournalError> {
         let mut tmp_handle = 0 as *mut SdJournal;
 
         let rc = unsafe {
@@ -155,17 +175,17 @@ impl Journal {
                             SdJournalOpen::LocalOnly as c_int)
         };
         if rc != 0 {
-            Err(ClibraryError::new(String::from("Error on sd_journal_open"), rc))
+            Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_open"), rc)))
         } else {
             Ok(Journal { handle: tmp_handle, timeout_us: std::u64::MAX })
         }
     }
 
     #[allow(dead_code)]
-    fn get_log_entry(&mut self, key: &'static str) -> Result<String, ClibraryError> {
+    fn get_log_entry(&mut self, key: &'static str) -> Result<String, SdJournalError> {
         let mut x = 0 as *mut c_void;
         let mut len = 0 as size_t;
-        let field = CString::new(key).unwrap();
+        let field = CString::new(key)?;
 
         let log_msg: String;
         let rc = unsafe {
@@ -175,21 +195,21 @@ impl Journal {
         };
         if rc == 0 {
             let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
-            log_msg = String::from_utf8(slice[key.len()..len].to_vec()).unwrap();
+            log_msg = String::from_utf8(slice[key.len()..len].to_vec())?;
         } else {
             if rc == -ENOENT {
                 // TODO: Is there a better way to handle a key not being found?
                 log_msg = String::from("");
             } else {
-                return Err(ClibraryError::new(String::from("Error on sd_journal_get_data"),
-                                              rc));
+                return Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_get_data"),
+                                                                     rc)));
             }
         }
 
         Ok(log_msg)
     }
 
-    fn get_log_entry_map(&mut self) -> Result<HashMap<String, String>, ClibraryError> {
+    fn get_log_entry_map(&mut self) -> Result<HashMap<String, String>, SdJournalError> {
         let mut result = HashMap::new();
 
         // Re-set for the enumerator
@@ -207,11 +227,11 @@ impl Journal {
 
             if rc > 0 {
                 let slice = unsafe { slice::from_raw_parts(x as *const u8, len) };
-                let log_msg = String::from_utf8(slice[0..len].to_vec()).unwrap();
+                let log_msg = String::from_utf8(slice[0..len].to_vec())?;
 
                 if let Some(m) = log_msg.find('=') {
-                    let key = String::from_utf8(slice[0..m].to_vec()).unwrap();
-                    let value = String::from_utf8(slice[((m + 1)..len)].to_vec()).unwrap();
+                    let key = String::from_utf8(slice[0..m].to_vec())?;
+                    let value = String::from_utf8(slice[((m + 1)..len)].to_vec())?;
                     result.insert(key, value);
                 }
             } else if rc == 0 {
@@ -219,9 +239,9 @@ impl Journal {
                 break;
             } else {
                 // negative integer expressing error reason
-                return Err(ClibraryError::new(
+                return Err(SdJournalError::CError(ClibraryError::new(
                     String::from("Error on sd_journal_enumerate_data"),
-                    rc));
+                    rc)));
             }
         }
 
@@ -232,21 +252,21 @@ impl Journal {
         let x = unsafe { sd_journal_get_events(self.handle)};
         return x as i16;
     }
-    pub fn seek_tail(&mut self) -> Result<bool, ClibraryError> {
+    pub fn seek_tail(&mut self) -> Result<bool, SdJournalError> {
         let rc = unsafe { sd_journal_seek_tail(self.handle) };
         if rc < 0 {
-            return Err(ClibraryError::new(String::from("Error on sd_journal_seek_tail"),
-                                          rc));
+            return Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_seek_tail"),
+                                                                 rc)));
         }
         Ok(true)
     }
 
-    fn get_next_entry(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
+    fn get_next_entry(&mut self) -> Option<Result<HashMap<String, String>, SdJournalError>> {
         loop {
             let log_entry = unsafe { sd_journal_next(self.handle) };
             if log_entry < 0 {
-                return Some(Err(ClibraryError::new(String::from("Error on sd_journal_next"),
-                                                   log_entry)));
+                return Some(Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_next"),
+                                                                          log_entry))));
             }
 
             if log_entry == 0 {
@@ -259,8 +279,8 @@ impl Journal {
                     wait_rc == SdJournalWait::Invalidate as i32 {
                     continue;
                 } else {
-                    return Some(Err(ClibraryError::new(String::from("Error on sd_journal_wait"),
-                                                       wait_rc)));
+                    return Some(Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_wait"),
+                                                                              wait_rc))));
                 }
             }
 
@@ -272,7 +292,7 @@ impl Journal {
         }
     }
 
-    pub fn get_next(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
+    pub fn get_next(&mut self) -> Option<Result<HashMap<String, String>, SdJournalError>> {
         self.get_next_entry()
     }
 }
@@ -280,15 +300,15 @@ impl Journal {
 pub fn send_journal_basic(message_id: &'static str,
                           message: &str, source: &str, source_man: &str, device: &str,
                           device_id: &str, state: &str,
-                          priority: JournalPriority, details: String) -> Result<bool, ClibraryError> {
-    let msg_id = CString::new(format!("MESSAGE_ID={}", message_id)).unwrap();
-    let device_cstr = CString::new(format!("DEVICE={}", device)).unwrap();
-    let device_id_cstr = CString::new(format!("DEVICE_ID={}", device_id)).unwrap();
-    let state_cstr = CString::new(format!("STATE={}", state)).unwrap();
-    let source_cstr = CString::new(format!("SOURCE={}", source)).unwrap();
-    let source_man_cstr = CString::new(format!("SOURCE_MAN={}", source_man)).unwrap();
-    let details_cstr = CString::new(format!("DETAILS={}", details)).unwrap();
-    let priority_cstr = CString::new(format!("PRIORITY={}", priority as u8)).unwrap();
+                          priority: JournalPriority, details: String) -> Result<bool, SdJournalError> {
+    let msg_id = CString::new(format!("MESSAGE_ID={}", message_id))?;
+    let device_cstr = CString::new(format!("DEVICE={}", device))?;
+    let device_id_cstr = CString::new(format!("DEVICE_ID={}", device_id))?;
+    let state_cstr = CString::new(format!("STATE={}", state))?;
+    let source_cstr = CString::new(format!("SOURCE={}", source))?;
+    let source_man_cstr = CString::new(format!("SOURCE_MAN={}", source_man))?;
+    let details_cstr = CString::new(format!("DETAILS={}", details))?;
+    let priority_cstr = CString::new(format!("PRIORITY={}", priority as u8))?;
 
     let priority_desc = match priority {
         JournalPriority::Emergency => "emergency",
@@ -301,8 +321,8 @@ pub fn send_journal_basic(message_id: &'static str,
         JournalPriority::Debug => "debug",
     };
 
-    let priority_desc_cstr = CString::new(format!("PRIORITY_DESC={}", priority_desc)).unwrap();
-    let message_cstr = CString::new(format!("MESSAGE={}", message)).unwrap();
+    let priority_desc_cstr = CString::new(format!("PRIORITY_DESC={}", priority_desc))?;
+    let message_cstr = CString::new(format!("MESSAGE={}", message))?;
     let end_args: *const u8 = ptr::null();
 
     let rc = unsafe {
@@ -321,16 +341,16 @@ pub fn send_journal_basic(message_id: &'static str,
     };
 
     if rc < 0 {
-        return Err(ClibraryError::new(String::from("Error on sd_journal_send"),
-                                      rc));
+        return Err(SdJournalError::CError(ClibraryError::new(String::from("Error on sd_journal_send"),
+                                                             rc)));
     }
     Ok(true)
 }
 
 impl Iterator for Journal {
-    type Item = Result<HashMap<String, String>, ClibraryError>;
+    type Item = Result<HashMap<String, String>, SdJournalError>;
 
-    fn next(&mut self) -> Option<Result<HashMap<String, String>, ClibraryError>> {
+    fn next(&mut self) -> Option<Result<HashMap<String, String>, SdJournalError>> {
         self.get_next_entry()
     }
 }
